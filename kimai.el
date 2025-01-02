@@ -3,7 +3,7 @@
 ;; Auteur : DarkBuffalo <db@gnu.re>
 ;; URL : https://github.com/DarkBuffalo/kimai.el
 ;; Version : 1.0
-;; Package-Requires: ((emacs "25.1"))
+;; Package-Requires: ((emacs "25.1")(request "0.3.2"))
 ;; Licence : MIT
 
 ;;; Description :
@@ -26,7 +26,7 @@
 ;;; Code :
 
 ;; Dépendances nécessaires
-(require 'url)
+(require 'request)
 (require 'json)
 
 ;; Définir un groupe de personnalisation
@@ -72,21 +72,33 @@ Affiche un message d'avertissement si une variable est vide."
   "Envoie une requête à l'API Kimai.
 ENDPOINT est le chemin de l'API.
 METHOD est la méthode HTTP (\"GET\", \"POST\", etc.).
-DATA est un dictionnaire à convertir en JSON pour le corps de la requête."
+DATA est un dictionnaire à convertir en JSON pour le corps de la requête.
+Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
   (kimai-check-config)
-  (let ((url-request-method method)
-        (url-request-extra-headers `(("Authorization" . ,(format "Bearer %s" kimai-api-token))
-                                     ("Content-Type" . "application/json")))
-        (url-request-data (when data (json-encode data))))
-    (with-current-buffer (url-retrieve-synchronously (concat kimai-server-url endpoint) t t)
-      (goto-char url-http-end-of-headers)
-      (let ((response (buffer-substring-no-properties (point) (point-max))))
-        (kill-buffer)
-        (json-read-from-string response)))))
+  (let* ((url (concat kimai-server-url endpoint))
+         (response (request url
+                     :type method
+                     :headers `(("X-AUTH-TOKEN" . ,kimai-api-token)
+                                ("X-AUTH-USER" . ,kimai-username)
+                                ("Content-Type" . "application/json"))
+                     :data (when data (json-encode data))
+                     :parser 'json-read
+                     :sync t)))
+    (if (request-response-error-thrown response)
+        (progn
+          (message "Requête échouée. URL : %s" url)
+          (message "Données envoyées : %s" (when data (json-encode data)))
+          (message "Code de réponse HTTP : %s" (request-response-status-code response))
+          (message "Corps de la réponse : %s" (request-response-data response))
+          (error "Erreur de l'API Kimai : %s" (request-response-error-thrown response)))
+      (request-response-data response))))
+
+
 
 (defun kimai-fetch-projects ()
   "Récupère la liste des projets depuis Kimai."
   (kimai-api-request "/projects" "GET"))
+
 
 (defun kimai-fetch-activities ()
   "Récupère la liste des activités depuis Kimai."
