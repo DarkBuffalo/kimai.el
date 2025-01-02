@@ -3,8 +3,8 @@
 
 #+html: <img src="assets/kimai.el_logo.png" align="right" width="150">
 
------
-
+Kimai Emacs Integration is an Emacs package that allows users to interact with the Kimai time-tracking application directly from Emacs.
+Designed for developers and professionals who use both Emacs and Kimai, the package simplifies time-tracking workflows and eliminates the need to switch between applications.
 
 * Installation
 
