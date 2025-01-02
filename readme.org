@@ -1,7 +1,7 @@
 #+title: kimai.el
 #+author: DarkBuffalo
 
-#+html: <img src="assets/kimai.el_logo.png" align="right">
+#+html: <img src="assets/kimai.el_logo.png" align="right" width="150">
 
 -----
 
