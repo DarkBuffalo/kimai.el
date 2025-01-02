@@ -9,7 +9,7 @@ Designed for developers and professionals who use both Emacs and Kimai, the pack
 * Installation
 
 #+begin_src elisp
-  (p! kimai
+  (use-package kimai
     :straight ( :host github :repo "DarkBuffalo/kimai.el")
     :custom
     (kimai-server-url "https://your-server/api")
