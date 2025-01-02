@@ -1,0 +1,32 @@
+#+title: kimai.el
+#+author: DarkBuffalo
+
+#+caption: Header of pdf
+#+attr_latex: :width 150px
+[[file:assets/kimai.el_logo.png]]
+
+-----
+
+
+* Installation
+
+#+begin_src elisp
+  (p! kimai
+    :straight ( :host github :repo "DarkBuffalo/kimai.el")
+    :custom
+    (kimai-server-url "https://your-server/api")
+    (kimai-api-token "YOUR-API-TOKKEN")
+    (kimai-username "YOUR-USERNAME"))
+#+end_src
+
+
+to start counting your time run the command =kimai-start-tracking= and to stop =kimai-stop-tracking=
+
+
+* CONTRIBUTING
+
+1. Fork it (<https://github.com/DarkBuffalo/kimai.el/fork>)
+2. Create your feature branch (`git checkout -b feature/fooBar`)
+3. Commit your changes (`git commit -am 'Add some fooBar'`)
+4. Push to the branch (`git push origin feature/fooBar`)
+5. Create a new Pull Request
