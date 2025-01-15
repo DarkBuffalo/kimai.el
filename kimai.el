@@ -95,24 +95,35 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
 
 
 
-(defun kimai-fetch-projects ()
+(defun kimai-fetch-customers ()
+  "Récupère la liste des clients depuis Kimai."
+  (kimai-api-request "/customers" "GET"))
+
+
+(defun kimai-fetch-projects (customer-id)
   "Récupère la liste des projets depuis Kimai."
-  (kimai-api-request "/projects" "GET"))
+  (kimai-api-request (concat "/projects?customer=" (number-to-string customer-id)) "GET"))
 
 
-(defun kimai-fetch-activities ()
+(defun kimai-fetch-activities (project-id)
   "Récupère la liste des activités depuis Kimai."
-  (kimai-api-request "/activities" "GET"))
+  (kimai-api-request (concat "/activities?project=" (number-to-string project-id)) "GET"))
 
-(defun kimai-prompt-for-project ()
+(defun kimai-prompt-for-customer ()
+  "Invite l'utilisateur à sélectionner un client."
+  (let* ((customers (kimai-fetch-customers))
+         (customer-names (mapcar (lambda (c) (cons (cdr (assoc 'name c)) (cdr (assoc 'id c)))) customers)))
+    (cdr (assoc (completing-read "Sélectionnez un client: " customer-names) customer-names))))
+
+(defun kimai-prompt-for-project (customer-id)
   "Invite l'utilisateur à sélectionner un projet."
-  (let* ((projects (kimai-fetch-projects))
+  (let* ((projects (kimai-fetch-projects customer-id))
          (project-names (mapcar (lambda (p) (cons (cdr (assoc 'name p)) (cdr (assoc 'id p)))) projects)))
     (cdr (assoc (completing-read "Sélectionnez un projet: " project-names) project-names))))
 
-(defun kimai-prompt-for-activity ()
+(defun kimai-prompt-for-activity (project-id)
   "Invite l'utilisateur à sélectionner une activité."
-  (let* ((activities (kimai-fetch-activities))
+  (let* ((activities (kimai-fetch-activities project-id))
          (activity-names (mapcar (lambda (a) (cons (cdr (assoc 'name a)) (cdr (assoc 'id a)))) activities)))
     (cdr (assoc (completing-read "Sélectionnez une activité: " activity-names) activity-names))))
 
@@ -120,8 +131,9 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
 (defun kimai-start-tracking ()
   "Démarre un suivi de temps pour un projet et une activité spécifiques."
   (interactive)
-  (let* ((project-id (kimai-prompt-for-project))
-         (activity-id (kimai-prompt-for-activity))
+  (let* ((customer-id (kimai-prompt-for-customer))
+         (project-id (kimai-prompt-for-project customer-id))
+         (activity-id (kimai-prompt-for-activity project-id))
          (description (read-string "Entrez une description: "))
          (response (kimai-api-request "/timesheets" "POST"
                                       `(("project" . ,project-id)
