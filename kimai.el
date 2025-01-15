@@ -94,6 +94,32 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
       (request-response-data response))))
 
 
+;;; modeline
+(defvar kimai-tracking-start-time nil
+  "The start time of the current tracking session in seconds since epoch.")
+
+(defvar kimai-tracking-active nil
+  "Whether a tracking session is currently active.")
+
+(defvar kimai-mode-line-string ""
+  "String displayed in the mode-line for Kimai.")
+
+(defun kimai-update-mode-line ()
+  "Update the mode-line with the elapsed tracking time."
+  (if kimai-tracking-active
+      (let* ((elapsed (float-time (time-subtract (current-time) kimai-tracking-start-time)))
+             (hours (floor (/ elapsed 3600)))
+             (minutes (mod (floor (/ elapsed 60)) 60)))
+        (setq kimai-mode-line-string
+              (format " Kimai: %02d:%02d " hours minutes)))
+    (setq kimai-mode-line-string "")))
+
+(unless (memq 'kimai-mode-line-string global-mode-string)
+  (setq global-mode-string (append global-mode-string '(kimai-mode-line-string))))
+
+;;; end modeline here
+
+
 
 (defun kimai-fetch-customers ()
   "Récupère la liste des clients depuis Kimai."
@@ -142,7 +168,10 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
     (if (assoc 'id response)
         (progn
           (setq kimai-active-timer-id (cdr (assoc 'id response)))
-          (message "Suivi de temps démarré avec ID: %s" kimai-active-timer-id))
+          (message "Suivi de temps démarré avec ID: %s" kimai-active-timer-id)
+          (setq kimai-tracking-start-time (current-time)) ;; modeline
+          (setq kimai-tracking-active t) ;;modeline
+          (run-with-timer 1 1 #'kimai-update-mode-line))
       (message "Erreur lors du démarrage du suivi de temps: %s" response))))
 
 ;;;###autoload
@@ -153,6 +182,11 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
       (let ((response (kimai-api-request (format "/timesheets/%s/stop" kimai-active-timer-id) "PATCH")))
         (if (assoc 'id response)
             (progn
+              ;; timeline
+              (setq kimai-tracking-start-time nil)
+              (setq kimai-tracking-active nil)
+              (kimai-update-mode-line)
+              ;; message arret
               (message "Suivi de temps arrêté pour l'ID: %s" kimai-active-timer-id)
               (setq kimai-active-timer-id nil))
           (message "Erreur lors de l'arrêt du suivi de temps: %s" response)))
