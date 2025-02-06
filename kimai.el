@@ -196,7 +196,26 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
 
 
 
-;;;Rapport
+;;; ** Rapport
+(defvar kimai-projects-cache nil
+  "Cache contenant tous les projets récupérés depuis l'API Kimai.")
+
+(defvar kimai-activities-cache nil
+  "Cache contenant toutes les activits récupérées depuis l'API Kimai.")
+
+(defun kimai-load-projects-and-activities ()
+  "Charge les projets et activités depuis l'API Kimai et les met en cache."
+  (setq kimai-projects-cache (kimai-api-request "/projects" "GET"))
+  (setq kimai-activities-cache (kimai-api-request "/activities" "GET")))
+
+(defun kimai-get-project-name (project-id)
+  "Retourne le nom du projet correspondant à PROJECT-ID depuis le cache."
+  (cdr (assoc 'name (seq-find (lambda (p) (= (cdr (assoc 'id p)) project-id)) kimai-projects-cache))))
+
+(defun kimai-get-activity-name (activity-id)
+  "Retourne le nom de l'activité correspondant à ACTIVITY-ID depuis le cache."
+  (cdr (assoc 'name (seq-find (lambda (a) (= (cdr (assoc 'id a)) activity-id)) kimai-activities-cache))))
+
 (defun kimai-last-month-period ()
   "Retourne une liste '(start end) correspondant au début et à la fin du mois dernier."
   (let* ((current-date (decode-time))
@@ -226,26 +245,29 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
         (minutes (% (/ seconds 60) 60)))
     (format "%02d:%02d" hours minutes)))
 
-;; (defun kimai-group-by-project (data)
-;;   "Retourne une table associant chaque projet à une liste d'entrées de temps."
-;;   (let ((project-table (make-hash-table :test 'equal)))
-;;     (dolist (entry data)
-;;       (let* ((project (or (cdr (assoc 'project entry)) "Sans projet"))
-;;              (entries (gethash project project-table '())))
-;;         (puthash project (cons entry entries) project-table)))
-;;     project-table))
+(defun kimai-get-project-name (project-id)
+  "Retourne le nom du projet correspondant à PROJECT-ID depuis l'API Kimai."
+  (let ((projects (kimai-api-request "/projects" "GET")))
+    (cdr (assoc 'name (seq-find (lambda (p) (= (cdr (assoc 'id p)) project-id)) projects)))))
+
+(defun kimai-get-activity-name (activity-id)
+  "Retourne le nom de l'activité correspondant à ACTIVITY-ID depuis l'API Kimai."
+  (let ((activities (kimai-api-request "/activities" "GET")))
+    (cdr (assoc 'name (seq-find (lambda (a) (= (cdr (assoc 'id a)) activity-id)) activities)))))
+
 
 (defun kimai-group-by-project (data)
-  "Retourne une table associant chaque projet à une liste d'entrées de temps."
+  "Retourne une table associant chaque projet (nom)  une liste d'entrées de temps."
   (let ((project-table (make-hash-table :test 'equal)))
     ;; Convertir en liste normale si c'est un vecteur
     (when (vectorp data)
       (setq data (append data nil)))
 
     (dolist (entry data)
-      (let* ((project (or (cdr (assoc 'project entry)) "Sans projet"))
-             (entries (gethash project project-table '())))
-        (puthash project (cons entry entries) project-table)))
+      (let* ((project-id (cdr (assoc 'project entry)))
+             (project-name (kimai-get-project-name project-id)) ;; Récupérer le nom du projet
+             (entries (gethash project-name project-table '())))
+        (puthash project-name (cons entry entries) project-table)))
     project-table))
 
 
@@ -268,7 +290,7 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
            (let* ((begin (cdr (assoc 'begin entry)))
                   (end (cdr (assoc 'end entry)))
                   (duration (kimai-format-duration (cdr (assoc 'duration entry))))
-                  (activity (or (cdr (assoc 'activity entry)) "N/A"))
+                  (activity (or (kimai-get-activity-name (cdr (assoc 'activity entry))) "N/A"))
                   (description (or (cdr (assoc 'description entry)) "Aucune description")))
              (insert (format "| %s | %s | %s | %s | %s | %s |\n"
                              (substring begin 0 10)
@@ -288,7 +310,7 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
 
 ;;;###autoload
 (defun kimai-month-report ()
-  "Mont report."
+  "Month report by project in org Buffer."
   (interactive)
   (let* ((period (kimai-last-month-period))
          (start (car period))
