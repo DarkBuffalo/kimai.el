@@ -28,6 +28,7 @@
 ;; Dépendances nécessaires
 (require 'request)
 (require 'json)
+(require 'calendar)
 
 ;; Définir un groupe de personnalisation
 (defgroup kimai nil
@@ -192,5 +193,109 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
           (message "Erreur lors de l'arrêt du suivi de temps: %s" response)))
     (message "Aucun suivi de temps actif.")))
 
-(provide 'kimai)
+
+
+
+;;;Rapport
+(defun kimai-last-month-period ()
+  "Retourne une liste '(start end) correspondant au début et à la fin du mois dernier."
+  (let* ((current-date (decode-time))
+         (year (nth 5 current-date))
+         (month (nth 4 current-date))
+         (last-month (if (= month 1) 12 (1- month)))
+         (last-month-year (if (= month 1) (1- year) year))
+         (start (format "%04d-%02d-01" last-month-year last-month))
+         (end (format "%04d-%02d-%02d" last-month-year last-month
+                      (calendar-last-day-of-month last-month last-month-year))))
+    (list start end)))
+
+(defun kimai-get-time-entries-last-month ()
+  "Récupère les entrées de temps de Kimai pour le mois dernier."
+  (let* ((period (kimai-last-month-period))
+         (start (car period))
+         (end (cadr period)))
+    (kimai-get-time-entries start end)))
+
+(defun kimai-get-time-entries (start end)
+  "Récupère les entrées de temps de Kimai entre START et END (format YYYY-MM-DD)."
+  (kimai-api-request (format "/timesheets?begin=%sT00:00:00&end=%sT23:59:59" start end) "GET"))
+
+(defun kimai-format-duration (seconds)
+  "Convertit une durée en SECONDS en format hh:mm."
+  (let ((hours (/ seconds 3600))
+        (minutes (% (/ seconds 60) 60)))
+    (format "%02d:%02d" hours minutes)))
+
+;; (defun kimai-group-by-project (data)
+;;   "Retourne une table associant chaque projet à une liste d'entrées de temps."
+;;   (let ((project-table (make-hash-table :test 'equal)))
+;;     (dolist (entry data)
+;;       (let* ((project (or (cdr (assoc 'project entry)) "Sans projet"))
+;;              (entries (gethash project project-table '())))
+;;         (puthash project (cons entry entries) project-table)))
+;;     project-table))
+
+(defun kimai-group-by-project (data)
+  "Retourne une table associant chaque projet à une liste d'entrées de temps."
+  (let ((project-table (make-hash-table :test 'equal)))
+    ;; Convertir en liste normale si c'est un vecteur
+    (when (vectorp data)
+      (setq data (append data nil)))
+
+    (dolist (entry data)
+      (let* ((project (or (cdr (assoc 'project entry)) "Sans projet"))
+             (entries (gethash project project-table '())))
+        (puthash project (cons entry entries) project-table)))
+    project-table))
+
+
+
+(defun kimai-generate-org-report (start end)
+  "Génère un rapport Org-mode avec un tableau par projet pour les entrées de temps entre START et END."
+  (let* ((data (kimai-get-time-entries start end))
+         (buffer (get-buffer-create "*Kimai Org Report*"))
+         (project-table (kimai-group-by-project data)))
+    (with-current-buffer buffer
+      (erase-buffer)
+      (org-mode)
+      (insert (format "* Rapport Kimai du %s au %s\n\n" start end))
+      (maphash
+       (lambda (project entries)
+         (insert (format "** %s\n\n" project))
+         (insert "| Date       | Début      | Fin        | Durée  | Activité       | Description           |\n")
+         (insert "|------------+-----------+-----------+--------+---------------+----------------------|\n")
+         (dolist (entry entries)
+           (let* ((begin (cdr (assoc 'begin entry)))
+                  (end (cdr (assoc 'end entry)))
+                  (duration (kimai-format-duration (cdr (assoc 'duration entry))))
+                  (activity (or (cdr (assoc 'activity entry)) "N/A"))
+                  (description (or (cdr (assoc 'description entry)) "Aucune description")))
+             (insert (format "| %s | %s | %s | %s | %s | %s |\n"
+                             (substring begin 0 10)
+                             (substring begin 11 19)
+                             (substring end 11 19)
+                             duration
+                             activity
+                             description))))
+         (insert "\n"))
+       project-table)
+      (unless (> (hash-table-count project-table) 0)
+        (insert "** Aucun projet trouvé\n\n"))
+      (insert "\n"))
+    (switch-to-buffer buffer)))
+
+
+
+;;;###autoload
+(defun kimai-month-report ()
+  "Mont report."
+  (interactive)
+  (let* ((period (kimai-last-month-period))
+         (start (car period))
+         (end (cadr period)))
+    (kimai-generate-org-report start end)))
+
+
+
+  (provide 'kimai)
 ;;; kimai.el ends here
