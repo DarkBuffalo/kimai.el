@@ -53,8 +53,38 @@
   :group 'kimai)
 
 
-;; Variables pour le suivi
+;; Variables pour le suivi et le cache
 (defvar kimai-active-timer-id nil)
+(defvar kimai-projects-cache nil "Cache contenant tous les projets récupérés depuis l'API Kimai.")
+(defvar kimai-activities-cache nil "Cache contenant toutes les activits récupérées depuis l'API Kimai.")
+(defvar kimai-cache-timeout 3600 "Dure de validité du cache en secondes")
+(defvar kimai-cache-last-update nil "Timestamp de la dernire mise à jour du cache")
+(defvar kimai-update-timer nil "Timer pour la mise à jour de la modeline")
+
+;; Variables pour la modeline
+(defvar kimai-tracking-start-time nil
+  "The start time of the current tracking session in seconds since epoch.")
+(defvar kimai-tracking-active nil
+  "Whether a tracking session is currently active.")
+(defvar kimai-mode-line-string ""
+  "String displayed in the mode-line for Kimai.")
+
+;; Fonctions de gestion du cache
+(defun kimai-cache-expired-p ()
+  "Vérifie si le cache a expiré."
+  (or (null kimai-cache-last-update)
+      (> (- (float-time) kimai-cache-last-update) kimai-cache-timeout)))
+
+(defun kimai-refresh-cache ()
+  "Rafrachit le cache des projets et activités."
+  (setq kimai-projects-cache (kimai-api-request "/projects" "GET")
+        kimai-activities-cache (kimai-api-request "/activities" "GET")
+        kimai-cache-last-update (float-time)))
+
+(defun kimai-ensure-cache ()
+  "S'assure que le cache est à jour."
+  (when (kimai-cache-expired-p)
+    (kimai-refresh-cache)))
 
 
 (defun kimai-check-config ()
@@ -67,43 +97,64 @@ Affiche un message d'avertissement si une variable est vide."
   (unless (and (stringp kimai-username) (not (string-empty-p kimai-username)))
     (user-error "La variable `kimai-username` n'est pas configurée")))
 
-
+;; Ajouter une fonction pour gérer les erreurs HTTP de manière plus élegante
+(defun kimai-handle-api-error (response)
+  "Gere les erreurs API de manire plus detaille."
+  (let ((status (request-response-status-code response))
+        (error-msg (request-response-error-thrown response)))
+    (pcase status
+      (401 (error "Erreur d'authentification. Vérifiez vos identifiants"))
+      (403 (error "Accès non autorise"))
+      (404 (error "Ressource non trouve"))
+      (_ (error "Erreur API (%s): %s" status error-msg)))))
 
 (defun kimai-api-request (endpoint method &optional data)
-  "Envoie une requête à l'API Kimai.
-ENDPOINT est le chemin de l'API.
-METHOD est la méthode HTTP (\"GET\", \"POST\", etc.).
-DATA est un dictionnaire à convertir en JSON pour le corps de la requête.
-Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
+  "Envoie une requète à l'API Kimai."
   (kimai-check-config)
   (let* ((url (concat kimai-server-url endpoint))
          (response (request url
-                     :type method
-                     :headers `(("X-AUTH-TOKEN" . ,kimai-api-token)
-                                ("X-AUTH-USER" . ,kimai-username)
-                                ("Content-Type" . "application/json"))
-                     :data (when data (json-encode data))
-                     :parser 'json-read
-                     :sync t)))
+                    :type method
+                    :headers `(("X-AUTH-TOKEN" . ,kimai-api-token)
+                             ("X-AUTH-USER" . ,kimai-username)
+                             ("Content-Type" . "application/json"))
+                    :data (when data (json-encode data))
+                    :parser 'json-read
+                    :sync t)))
     (if (request-response-error-thrown response)
-        (progn
-          (message "Requête échouée. URL : %s" url)
-          (message "Données envoyées : %s" (when data (json-encode data)))
-          (message "Code de réponse HTTP : %s" (request-response-status-code response))
-          (message "Corps de la réponse : %s" (request-response-data response))
-          (error "Erreur de l'API Kimai : %s" (request-response-error-thrown response)))
+        (kimai-handle-api-error response)
       (request-response-data response))))
 
+;; Fonctions de formatage
+(defun kimai-format-date (date-string)
+  "Formate une date ISO en format lisible."
+  (format-time-string "%Y-%m-%d"
+                      (date-to-time date-string)))
+
+(defun kimai-format-time (time-string)
+  "Formate une heure ISO en format lisible."
+  (format-time-string "%H:%M:%S"
+                      (date-to-time time-string)))
+
+(defun kimai-format-duration (seconds)
+  "Convertit une durée en SECONDS en format hh:mm."
+  (let ((hours (/ seconds 3600))
+        (minutes (% (/ seconds 60) 60)))
+    (format "%02d:%02d" hours minutes)))
 
 ;;; modeline
-(defvar kimai-tracking-start-time nil
-  "The start time of the current tracking session in seconds since epoch.")
+;; Gestion de la modeline
+(defun kimai-start-modeline-updates ()
+  "Démarre les mises à jour de la modeline."
+  (when kimai-update-timer
+    (cancel-timer kimai-update-timer))
+  (setq kimai-update-timer
+        (run-with-timer 0 60 #'kimai-update-mode-line)))
 
-(defvar kimai-tracking-active nil
-  "Whether a tracking session is currently active.")
-
-(defvar kimai-mode-line-string ""
-  "String displayed in the mode-line for Kimai.")
+(defun kimai-stop-modeline-updates ()
+  "Arrète les mises à jour de la modeline."
+  (when kimai-update-timer
+    (cancel-timer kimai-update-timer)
+    (setq kimai-update-timer nil)))
 
 (defun kimai-update-mode-line ()
   "Update the mode-line with the elapsed tracking time."
@@ -121,16 +172,13 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
 ;;; end modeline here
 
 
-
 (defun kimai-fetch-customers ()
   "Récupère la liste des clients depuis Kimai."
   (kimai-api-request "/customers" "GET"))
 
-
 (defun kimai-fetch-projects (customer-id)
   "Récupère la liste des projets depuis Kimai."
   (kimai-api-request (concat "/projects?customer=" (number-to-string customer-id)) "GET"))
-
 
 (defun kimai-fetch-activities (project-id)
   "Récupère la liste des activités depuis Kimai."
@@ -194,14 +242,7 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
     (message "Aucun suivi de temps actif.")))
 
 
-
-
 ;;; ** Rapport
-(defvar kimai-projects-cache nil
-  "Cache contenant tous les projets récupérés depuis l'API Kimai.")
-
-(defvar kimai-activities-cache nil
-  "Cache contenant toutes les activits récupérées depuis l'API Kimai.")
 
 (defun kimai-load-projects-and-activities ()
   "Charge les projets et activités depuis l'API Kimai et les met en cache."
@@ -235,9 +276,18 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
          (end (cadr period)))
     (kimai-get-time-entries start end)))
 
+(defun kimai-validate-date-range (start end)
+  "Valide une plage de dates."
+  (let ((start-time (date-to-time start))
+        (end-time (date-to-time end)))
+    (when (time-less-p end-time start-time)
+      (error "La date de fin doit être postérieure à la date de début"))))
+
 (defun kimai-get-time-entries (start end)
-  "Récupère les entrées de temps de Kimai entre START et END (format YYYY-MM-DD)."
+  "Récupere les entres de temps de Kimai entre START et END (format YYYY-MM-DD)."
+  (kimai-validate-date-range start end)
   (kimai-api-request (format "/timesheets?begin=%sT00:00:00&end=%sT23:59:59" start end) "GET"))
+
 
 (defun kimai-format-duration (seconds)
   "Convertit une durée en SECONDS en format hh:mm."
@@ -245,65 +295,112 @@ Retourne le corps JSON de la réponse ou signale une erreur en cas d'échec."
         (minutes (% (/ seconds 60) 60)))
     (format "%02d:%02d" hours minutes)))
 
-(defun kimai-get-project-name (project-id)
-  "Retourne le nom du projet correspondant à PROJECT-ID depuis l'API Kimai."
-  (let ((projects (kimai-api-request "/projects" "GET")))
-    (cdr (assoc 'name (seq-find (lambda (p) (= (cdr (assoc 'id p)) project-id)) projects)))))
-
-(defun kimai-get-activity-name (activity-id)
-  "Retourne le nom de l'activité correspondant à ACTIVITY-ID depuis l'API Kimai."
-  (let ((activities (kimai-api-request "/activities" "GET")))
-    (cdr (assoc 'name (seq-find (lambda (a) (= (cdr (assoc 'id a)) activity-id)) activities)))))
-
-
 (defun kimai-group-by-project (data)
-  "Retourne une table associant chaque projet (nom)  une liste d'entrées de temps."
+  "Optimisation du groupement par projet avec cache."
+  (kimai-ensure-cache)
   (let ((project-table (make-hash-table :test 'equal)))
-    ;; Convertir en liste normale si c'est un vecteur
-    (when (vectorp data)
-      (setq data (append data nil)))
-
-    (dolist (entry data)
-      (let* ((project-id (cdr (assoc 'project entry)))
-             (project-name (kimai-get-project-name project-id)) ;; Récupérer le nom du projet
-             (entries (gethash project-name project-table '())))
-        (puthash project-name (cons entry entries) project-table)))
+    (seq-do
+     (lambda (entry)
+       (let* ((project-id (cdr (assoc 'project entry)))
+              (project-name (or (kimai-get-project-name project-id) "Inconnu"))
+              (entries (gethash project-name project-table '())))
+         (puthash project-name
+                  (cons entry entries)
+                  project-table)))
+     data)
     project-table))
 
 
-
 (defun kimai-generate-org-report (start end)
-  "Génère un rapport Org-mode avec un tableau par projet pour les entrées de temps entre START et END."
+  "Génere un rapport Org-mode détaillé pour les entres de temps entre START et END.
+Le rapport inclut des statistiques par projet et des totaux globaux."
   (let* ((data (kimai-get-time-entries start end))
          (buffer (get-buffer-create "*Kimai Org Report*"))
-         (project-table (kimai-group-by-project data)))
+         (project-table (kimai-group-by-project data))
+         (total-duration 0)
+         (total-projects 0))
+
+    ;; Assurons-nous que le cache est  jour
+    (kimai-ensure-cache)
+
     (with-current-buffer buffer
       (erase-buffer)
       (org-mode)
-      (insert (format "* Rapport Kimai du %s au %s\n\n" start end))
+
+      ;; En-tte du rapport
+      (insert (format "#+TITLE: Rapport Kimai du %s au %s\n" start end))
+      (insert (format "#+DATE: Généré le %s\n" (format-time-string "%Y-%m-%d %H:%M")))
+      (insert (format "#+AUTHOR: %s\n\n" kimai-username))
+
+      ;; Traitement par projet
+      (insert "* Projets\n\n")
       (maphash
        (lambda (project entries)
-         (insert (format "** %s\n\n" project))
-         (insert "| Date       | Début      | Fin        | Durée  | Activité       | Description           |\n")
-         (insert "|------------+-----------+-----------+--------+---------------+----------------------|\n")
-         (dolist (entry entries)
-           (let* ((begin (cdr (assoc 'begin entry)))
-                  (end (cdr (assoc 'end entry)))
-                  (duration (kimai-format-duration (cdr (assoc 'duration entry))))
-                  (activity (or (kimai-get-activity-name (cdr (assoc 'activity entry))) "N/A"))
-                  (description (or (cdr (assoc 'description entry)) "Aucune description")))
-             (insert (format "| %s | %s | %s | %s | %s | %s |\n"
-                             (substring begin 0 10)
-                             (substring begin 11 19)
-                             (substring end 11 19)
-                             duration
-                             activity
+         (setq total-projects (1+ total-projects))
+         (let ((project-duration 0))
+           ;; En-tete du projet
+           (insert (format "** %s\n\n" project))
+
+           ;; Tableau des entrées
+           (insert "|---|\n")
+           (insert "| Date | Début | Fin | Durée | Activité | Description |\n")
+           (insert "|---|\n")
+
+           ;; Trier les entrées par date
+           (setq entries
+                 (sort entries
+                       (lambda (a b)
+                         (string< (cdr (assoc 'begin a))
+                                (cdr (assoc 'begin b))))))
+
+           ;; Ajouter chaque entrée
+           (dolist (entry entries)
+             (let* ((begin (cdr (assoc 'begin entry)))
+                    (end (cdr (assoc 'end entry)))
+                    (duration (cdr (assoc 'duration entry)))
+                    (activity-id (cdr (assoc 'activity entry)))
+                    (activity-name (or (kimai-get-activity-name activity-id) "N/A"))
+                    (description (or (cdr (assoc 'description entry)) ""))
+                    (formatted-duration (kimai-format-duration duration)))
+
+               ;; Accumuler les durées
+               (setq project-duration (+ project-duration duration))
+               (setq total-duration (+ total-duration duration))
+
+               ;; Insérer la ligne du tableau
+               (insert (format "| %s | %s | %s | %s | %s | %s |\n"
+                             (kimai-format-date begin)
+                             (kimai-format-time begin)
+                             (kimai-format-time end)
+                             formatted-duration
+                             activity-name
                              description))))
-         (insert "\n"))
+
+           ;; Rsum du projet
+           (insert "|---|\n\n")
+           (insert (format "*** Résumé du projet\n"))
+           (insert (format "- Nombre d'entrées : %d\n" (length entries)))
+           (insert (format "- Durée totale : %s\n\n"
+                         (kimai-format-duration project-duration)))))
        project-table)
-      (unless (> (hash-table-count project-table) 0)
-        (insert "** Aucun projet trouvé\n\n"))
-      (insert "\n"))
+
+      ;; Statistiques globales
+      (insert "* Statistiques globales\n\n")
+      (insert (format "- Nombre total de projets : %d\n" total-projects))
+      (insert (format "- Temps total enregistré : %s\n"
+                     (kimai-format-duration total-duration)))
+
+      ;; Ajouter des proprits pour org-mode
+      (goto-char (point-min))
+      (insert "#+OPTIONS: toc:2 num:nil\n")
+      (insert "#+STARTUP: overview indent\n\n"))
+
+    ;; Afficher le buffer et activer org-mode
+    (with-current-buffer buffer
+      (org-mode)
+      (org-table-map-tables 'org-table-align)
+      (goto-char (point-min)))
+
     (switch-to-buffer buffer)))
 
 
