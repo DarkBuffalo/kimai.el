@@ -1,5 +1,6 @@
 #+title: kimai.el
 #+author: DarkBuffalo
+#+MACRO: commit [[https://github.com/DarkBuffalo/kimai.el/commit/$1][$1]]
 
 #+html: <img src="assets/kimai.el_logo.png" align="right" width="150">
 
@@ -24,9 +25,9 @@ to start counting your time run the command =kimai-start-tracking= and to stop =
 * Features
 
 
-- 08/02/2025 :: timestamp for chosse date commit_1447b88
-- 08/02/2024 :: add org dynamic block commit_17fcb47
-- 06/02/2025 :: add month report to org commit_bbfccc2
+- 08/02/2025 :: timestamp for choose date {{{commit(1447b88)}}}
+- 08/02/2024 :: add org dynamic block {{{commit(17fcb47)}}}
+- 06/02/2025 :: add month report to org {{{commit(bbfccc2)}}}
 
 * CONTRIBUTING
 
