@@ -22,12 +22,17 @@ Designed for developers and professionals who use both Emacs and Kimai, the pack
 to start counting your time run the command =kimai-start-tracking= and to stop =kimai-stop-tracking=
 
 
-* Features
 
+#+BEGIN: github-commits :user DarkBuffalo :repo kimai.el :n 5
+* Latest commits
+- [[https://github.com/DarkBuffalo/kimai.el/commit/9628021][9628021]] - add: macro to readme
+- [[https://github.com/DarkBuffalo/kimai.el/commit/5df3b04][5df3b04]] - upd: readme
+- [[https://github.com/DarkBuffalo/kimai.el/commit/1447b88][1447b88]] - add: org-timestamp for choose date
+- [[https://github.com/DarkBuffalo/kimai.el/commit/17fcb47][17fcb47]] - add: org dynamic block
+- [[https://github.com/DarkBuffalo/kimai.el/commit/8359e47][8359e47]] - fix: report
 
-- 08/02/2025 :: timestamp for choose date {{{commit(1447b88)}}}
-- 08/02/2024 :: add org dynamic block {{{commit(17fcb47)}}}
-- 06/02/2025 :: add month report to org {{{commit(bbfccc2)}}}
+#+END:
+
 
 * CONTRIBUTING
 
@@ -36,3 +41,21 @@ to start counting your time run the command =kimai-start-tracking= and to stop =
 3. Commit your changes (`git commit -am 'Add some fooBar'`)
 4. Push to the branch (`git push origin feature/fooBar`)
 5. Create a new Pull Request
+
+
+# Local Variables:
+# eval: (defun org-dblock-write:github-commits (params)
+#         (let* ((user (or (plist-get params :user) "TON-UTILISATEUR"))
+#                (repo (or (plist-get params :repo) "TON-DEPOT"))
+#                (num (or (plist-get params :n) 5))
+#                (url (format "https://api.github.com/repos/%s/%s/commits?per_page=%d" user repo num))
+#                (json (with-temp-buffer
+#                        (url-insert-file-contents url)
+#                        (json-parse-buffer :array-type 'list))))
+#           (insert "* Latest commits\n")
+#           (dolist (commit json)
+#             (let ((sha (substring (gethash "sha" commit) 0 7))
+#                   (message (gethash "message" (gethash "commit" commit))))
+#               (insert (format "- [[https://github.com/%s/%s/commit/%s][%s]] - %s\n"
+#                               user repo sha sha message))))))
+# End:
