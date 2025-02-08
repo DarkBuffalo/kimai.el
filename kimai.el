@@ -29,6 +29,7 @@
 (require 'request)
 (require 'json)
 (require 'calendar)
+(require 'org)
 
 ;; Définir un groupe de personnalisation
 (defgroup kimai nil
@@ -258,7 +259,7 @@ Affiche un message d'avertissement si une variable est vide."
   (cdr (assoc 'name (seq-find (lambda (a) (= (cdr (assoc 'id a)) activity-id)) kimai-activities-cache))))
 
 (defun kimai-last-month-period ()
-  "Retourne une liste '(start end) correspondant au début et à la fin du mois dernier."
+  "Retourne une liste correspondant au début et à la fin du mois dernier."
   (let* ((current-date (decode-time))
          (year (nth 5 current-date))
          (month (nth 4 current-date))
@@ -287,13 +288,6 @@ Affiche un message d'avertissement si une variable est vide."
   "Récupere les entres de temps de Kimai entre START et END (format YYYY-MM-DD)."
   (kimai-validate-date-range start end)
   (kimai-api-request (format "/timesheets?begin=%sT00:00:00&end=%sT23:59:59" start end) "GET"))
-
-
-(defun kimai-format-duration (seconds)
-  "Convertit une durée en SECONDS en format hh:mm."
-  (let ((hours (/ seconds 3600))
-        (minutes (% (/ seconds 60) 60)))
-    (format "%02d:%02d" hours minutes)))
 
 (defun kimai-group-by-project (data)
   "Optimisation du groupement par projet avec cache."
@@ -403,8 +397,6 @@ Le rapport inclut des statistiques par projet et des totaux globaux."
 
     (switch-to-buffer buffer)))
 
-
-
 ;;;###autoload
 (defun kimai-month-report ()
   "Month report by project in org Buffer."
@@ -414,7 +406,124 @@ Le rapport inclut des statistiques par projet et des totaux globaux."
          (end (cadr period)))
     (kimai-generate-org-report start end)))
 
+;;; Dynamic block
+
+;; Fonction utilitaire pour convertir un vecteur en liste
+(defun kimai-vector-to-list (vector-data)
+  "Convertit un vecteur de données Kimai en liste.
+VECTOR-DATA est le vecteur à convertir."
+  (if (vectorp vector-data)
+      (append vector-data nil)
+    vector-data))
+
+(defun org-dblock-write:kimai-report (params)
+  "écrire un rapport Kimai dans un dynamic block.
+Les paramêtres acceptés sont :
+:start-date  Date de début (format YYYY-MM-DD)
+:end-date    Date de fin (format YYYY-MM-DD)
+:projects    Liste des projets (optionnel)
+:activities  Liste des activités (optionnel)
+:format      Format de sortie ('table ou 'list, par défaut 'table)"
+
+ ;; S'assurer que le cache est chargé
+  (unless (and (bound-and-true-p kimai-projects-cache)
+               (bound-and-true-p kimai-activities-cache))
+    (kimai-load-projects-and-activities))
+
+  (let* ((start (or (plist-get params :start-date)
+                    (format-time-string "%Y-%m-01")))
+         (end (or (plist-get params :end-date)
+                  (format-time-string "%Y-%m-%d")))
+         (format-type (or (plist-get params :format) 'table))
+         (projects (plist-get params :projects))
+         (activities (plist-get params :activities))
+         (entries (kimai-vector-to-list (kimai-get-time-entries start end)))
+         (total-duration 0))
+
+    (when projects
+      (setq entries
+            (seq-filter
+             (lambda (entry)
+               (member (kimai-get-project-name (cdr (assoc 'project entry)))
+                       projects))
+             entries)))
+
+    (when activities
+      (setq entries
+            (seq-filter
+             (lambda (entry)
+               (member (kimai-get-activity-name (cdr (assoc 'activity entry)))
+                       activities))
+             entries)))
+
+    (insert (format "Rapport Kimai du %s au %s\n" start end))
+
+    (pcase format-type
+      ('table
+       (insert "| Date | Projet | Activité | Début | Fin | Durée | Description |\n")
+       (insert "|------+--------+----------+-------+-----+--------+-------------|\n")
+       (dolist (entry (sort entries
+                            (lambda (a b)
+                              (string< (cdr (assoc 'begin a))
+                                       (cdr (assoc 'begin b))))))
+         (let* ((begin (cdr (assoc 'begin entry)))
+                (end (cdr (assoc 'end entry)))
+                (duration (cdr (assoc 'duration entry)))
+                (project (kimai-get-project-name (cdr (assoc 'project entry))))
+                (activity (kimai-get-activity-name (cdr (assoc 'activity entry))))
+                (description (or (cdr (assoc 'description entry)) "")))
+           (setq total-duration (+ total-duration duration))
+           (insert (format "| %s | %s | %s | %s | %s | %s | %s |\n"
+                           (kimai-format-date begin)
+                           project
+                           activity
+                           (kimai-format-time begin)
+                           (kimai-format-time end)
+                           (kimai-format-duration duration)
+                           description))))
+       (insert "|------+--------+----------+-------+-----+--------+-------------|\n")
+       (insert (format "| Total | | | | | %s | |\n"
+                       (kimai-format-duration total-duration))))
+
+      ('list
+       (dolist (entry (sort entries
+                            (lambda (a b)
+                              (string< (cdr (assoc 'begin a))
+                                       (cdr (assoc 'begin b))))))
+         (let* ((begin (cdr (assoc 'begin entry)))
+                (end (cdr (assoc 'end entry)))
+                (duration (cdr (assoc 'duration entry)))
+                (project (kimai-get-project-name (cdr (assoc 'project entry))))
+                (activity (kimai-get-activity-name (cdr (assoc 'activity entry))))
+                (description (or (cdr (assoc 'description entry)) "")))
+           (setq total-duration (+ total-duration duration))
+           (insert (format "- %s :: %s / %s (%s)\n  %s - %s\n  %s\n"
+                           (kimai-format-date begin)
+                           project
+                           activity
+                           (kimai-format-duration duration)
+                           (kimai-format-time begin)
+                           (kimai-format-time end)
+                           description))))
+       (insert (format "\nDurée totale : %s\n" (kimai-format-duration total-duration)))))))
+
+;;;###autoload
+(defun kimai-insert-report-block ()
+  "Insérer un nouveau dynamic block pour un rapport Kimai."
+  (interactive)
+  (let* ((start-date (read-string "Date de début (YYYY-MM-DD): "
+                                  (format-time-string "%Y-%m-01")))
+         (end-date (read-string "Date de fin (YYYY-MM-DD): "
+                                (format-time-string "%Y-%m-%d")))
+         (format-type (completing-read "Format (table/list): "
+                                       '("table" "list")
+                                       nil t nil nil "table")))
+    (org-create-dblock
+     `(:name "kimai-report"
+             :start-date ,start-date
+             :end-date ,end-date
+             :format ,(intern format-type)))))
 
 
-  (provide 'kimai)
+(provide 'kimai)
 ;;; kimai.el ends here
