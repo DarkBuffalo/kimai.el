@@ -507,22 +507,33 @@ Les paramêtres acceptés sont :
                            description))))
        (insert (format "\nDurée totale : %s\n" (kimai-format-duration total-duration)))))))
 
+
+(defun kimai-read-org-timestamp (prompt)
+  "Lit une date en utilisant org-timestamp.
+PROMPT est le message à afficher."
+  (let ((org-read-date-prefer-future nil))
+    (org-read-date nil nil nil prompt)))
+
 ;;;###autoload
 (defun kimai-insert-report-block ()
-  "Insérer un nouveau dynamic block pour un rapport Kimai."
+  "Insérer un nouveau dynamic block pour un rapport Kimai avec org-timestamp."
   (interactive)
-  (let* ((start-date (read-string "Date de début (YYYY-MM-DD): "
-                                  (format-time-string "%Y-%m-01")))
-         (end-date (read-string "Date de fin (YYYY-MM-DD): "
-                                (format-time-string "%Y-%m-%d")))
-         (format-type (completing-read "Format (table/list): "
-                                       '("table" "list")
-                                       nil t nil nil "table")))
+  (let* ((start-date (kimai-read-org-timestamp "Date de début: "))
+         (end-date (kimai-read-org-timestamp "Date de fin: "))
+         (format-choices '("table" "list"))
+         (format-type (completing-read
+                      "Format (table/list): "
+                      format-choices
+                      nil  ; predicate
+                      t    ; require-match
+                      nil  ; initial-input
+                      nil  ; hist
+                      "table"))) ; default
     (org-create-dblock
      `(:name "kimai-report"
-             :start-date ,start-date
-             :end-date ,end-date
-             :format ,(intern format-type)))))
+            :start-date ,start-date
+            :end-date ,end-date
+            :format ,(intern format-type)))))
 
 
 (provide 'kimai)
