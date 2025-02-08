@@ -21,6 +21,13 @@ Designed for developers and professionals who use both Emacs and Kimai, the pack
 to start counting your time run the command =kimai-start-tracking= and to stop =kimai-stop-tracking=
 
 
+* Features
+
+
+- 08/02/2025 :: timestamp for chosse date commit_1447b88
+- 08/02/2024 :: add org dynamic block commit_17fcb47
+- 06/02/2025 :: add month report to org commit_bbfccc2
+
 * CONTRIBUTING
 
 1. Fork it (<https://github.com/DarkBuffalo/kimai.el/fork>)
